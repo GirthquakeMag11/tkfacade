@@ -1,0 +1,83 @@
+[project]
+name = "tkfacade"
+version = "0.1.0"
+description = "Wrapper-based facades over tkinter"
+authors = [
+    { name = "Girthquake", email = "captainpatchwork@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = ["pillow>=12.3.0"]
+
+[project.optional-dependencies]
+media = ["python-mpv>=1.0.8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tkfacade"]
+
+[tool.hatch.build]
+# libmpv is a platform-specific native library, vendored for local use and
+# tracked with Git LFS. A built distribution must not carry 113 MiB of
+# Windows-only DLL: an installed tkfacade finds libmpv on the system library
+# path instead. An editable install reads the source tree directly, so the
+# vendored copy still works for development.
+exclude = ["src/tkfacade/media/libmpv"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "mypy>=1.14",
+    "ruff>=0.11.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"
+markers = [
+    "gui: tests that require a display/server",
+]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+warn_unused_ignores = true
+show_error_codes = true
+exclude = [
+    "^experiments/",
+    "^build/",
+    "^dist/",
+]
+
+[tool.ruff]
+target-version = "py314"
+src = ["src", "tests"]
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "I",
+    "N",
+    "W",
+    "UP",
+    "B",
+    "C4",
+    "SIM",
+]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"experiments/**" = ["ALL"]
+"src/tkfacade/media/_mpv.py" = ["E402"]
+"src/tkfacade/media/_player.py" = ["F401"]
+"src/tkfacade/media/_video.py" = ["F401"]
+"src/tkfacade/menu/_menu.py" = ["N803"]
+"src/tkfacade/widget/config/_base.py" = ["F401"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
