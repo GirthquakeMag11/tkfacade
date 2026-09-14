@@ -1,0 +1,59 @@
+name: Feature request
+description: Request a capability tkfacade should provide
+title: "[feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Agents filing via `/tkf-request-feature` produce exactly these
+        fields; see `docs/tracking/kit/`. Feature planning happens through
+        milestones and `docs/tracking/ROADMAP.md`.
+  - type: textarea
+    id: usecase
+    attributes:
+      label: Use case
+      description: What the downstream project was trying to do.
+    validations:
+      required: true
+  - type: textarea
+    id: pain
+    attributes:
+      label: Pain point
+      description: What tkfacade currently forces instead.
+    validations:
+      required: true
+  - type: textarea
+    id: surface
+    attributes:
+      label: Proposed surface
+      description: API sketch consistent with tkfacade conventions (master first, typed options, grid()/pack()/place() chaining).
+      render: python
+    validations:
+      required: false
+  - type: dropdown
+    id: principle
+    attributes:
+      label: Principle served
+      description: See CONTRIBUTING.md — the two project principles.
+      options:
+        - Encapsulation (no facade bypass needed)
+        - No stdlib tkinter import needed
+        - Both
+        - Neither
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and workarounds
+      description: What is being used today in place of this feature.
+    validations:
+      required: false
+  - type: input
+    id: project
+    attributes:
+      label: Reporting project
+      description: Downstream repo (and commit, if relevant). Leave empty for manual reports.
+    validations:
+      required: false

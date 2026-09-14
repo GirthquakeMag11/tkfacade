@@ -1,0 +1,88 @@
+name: Bug report
+description: Report a behavioral defect in tkfacade — the code does something wrong
+title: "[bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Agents filing via `/tkf-report-bug` produce exactly these fields;
+        see `docs/tracking/kit/`. The triage agent re-verifies every report.
+  - type: input
+    id: version
+    attributes:
+      label: tkfacade version
+      description: The exact pin in use (`uv pip show tkfacade` / `importlib.metadata.version`).
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform and OS version
+      placeholder: "Linux Mint 22 / Windows 11 / macOS 15"
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "3.14.0"
+    validations:
+      required: true
+  - type: input
+    id: project
+    attributes:
+      label: Reporting project
+      description: Downstream repo (and commit, if relevant). Leave empty for manual reports.
+    validations:
+      required: false
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: tkfacade-only code that reproduces the defect — no downstream application code.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Traceback, output, or — when the repro is inconclusive — what was tried.
+    validations:
+      required: false
+  - type: dropdown
+    id: principle
+    attributes:
+      label: Principle implicated
+      description: See CONTRIBUTING.md — the two project principles.
+      options:
+        - Encapsulation violation (facade had to be bypassed)
+        - Forced stdlib tkinter import
+        - Neither
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - critical
+        - high
+        - medium
+        - low
+    validations:
+      required: false

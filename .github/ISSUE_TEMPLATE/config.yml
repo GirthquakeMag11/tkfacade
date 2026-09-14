@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Project operations spec
+    url: https://github.com/GirthquakeMag11/tkfacade/blob/main/docs/tracking/SPEC.md
+    about: How tracking, triage, planning, and releases work in this repo
+  - name: Downstream reporting kit
+    url: https://github.com/GirthquakeMag11/tkfacade/blob/main/docs/tracking/kit/README.md
+    about: /tkf-report-bug and /tkf-request-feature commands for consuming projects

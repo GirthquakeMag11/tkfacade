@@ -1,5 +1,8 @@
 # tkfacade
 
+[![CI](https://github.com/GirthquakeMag11/tkfacade/actions/workflows/ci.yml/badge.svg)](https://github.com/GirthquakeMag11/tkfacade/actions/workflows/ci.yml)
+[![PyPI version](https://img.shields.io/pypi/v/tkfacade)](https://pypi.org/project/tkfacade/)
+
 Typed, imperative wrappers over tkinter's widgets, and the vocabulary their
 signatures speak. The library names every option a widget takes, gives each a
 typed property instead of a bag of keyword strings, and ships one consistent
@@ -8,10 +11,14 @@ surface over the whole toolkit.
 ## Installation
 
 ```sh
-uv add tkfacade
+uv add tkfacade==0.1.0
 # video playback also needs the media extra and libmpv on the system path
-uv add "tkfacade[media]"
+uv add "tkfacade[media]==0.1.0"
 ```
+
+Downstream projects pin exactly and bump deliberately after reading
+`CHANGELOG.md` and the release notes — during `0.x`, minor versions may
+break the API.
 
 Requires Python 3.14 or later. Tk must be available on the interpreter
 (tkinter ships with CPython on the common platforms).
@@ -47,9 +54,13 @@ Every wrapper takes its master first, then its options, and answers with
 
 ## What's here
 
-- **Widgets** — `Button`, `Checkbutton`, `TextLabel`, `ImageLabel`, `Entry`, `Text`, `Listbox`,
-  `Combobox`, `Scale`, `Spinbox`, `Separator`, `Tree`, `Table`, and the frame
-  family (`Frame`, `LabelFrame`, `PanedFrame`, `StackFrame`, `TabFrame`).
+- **Widgets** — `Button`, `Checkbutton`, `TextLabel`, `ImageLabel`, `Entry`,
+  `TitleEntry`, `Text`, `TextBox`, `Listbox`, `Combobox`, `IntScale` /
+  `FloatScale`, `IntSpinbox` / `FloatSpinbox`, `Separator`, `Scrollbar`, the
+  progressbars, the choice family (`ChoiceBox`, `ChoiceButton`,
+  `ChoiceButtons`, `ChoiceSet`, `ChoiceSpinner`), `Tree`, `Table`, and the
+  frame family (`Frame`, `LabelFrame`, `PanedFrame`, `StackFrame`,
+  `TabFrame`).
 - **Windows** — `Window` and `Root`, owning the interpreter and the event
   loop.
 - **Dialogs** — message, confirm, textbox, field, and file dialogs.
@@ -68,3 +79,9 @@ Every wrapper takes its master first, then its options, and answers with
   `showcase.py`.
 - `experiments/` — exploratory probes written while each area was designed;
   nothing there is part of the public surface.
+- `CONTRIBUTING.md` — the two project principles, the verify gate, the PR
+  flow, and the automation lifecycle.
+- `docs/tracking/` — the operations spec, the roadmap, and the downstream
+  reporting kit (`/tkf-report-bug`, `/tkf-request-feature`) for projects
+  consuming tkfacade.
+- `CHANGELOG.md` — per-release notes.
