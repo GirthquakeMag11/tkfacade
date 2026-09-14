@@ -1,0 +1,28 @@
+# Automerge job (SPEC.md 5.5): hourly, merges PRs labeled `automerge`
+# whose CI has been green for 24h with no human objection. Human activity
+# (any comment or review by a non-bot) permanently hands the PR to the
+# maintainer — the script never merges an intervened PR.
+
+name: Automerge
+
+on:
+  schedule:
+    - cron: "15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  checks: read
+  contents: write
+  pull-requests: write
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Merge green automerge PRs past the 24h window
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/scripts/automerge.sh

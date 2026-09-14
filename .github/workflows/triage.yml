@@ -1,0 +1,75 @@
+# Triage agent (SPEC.md section 3). Event-triggered per new/edited issue,
+# plus a nightly sweep. Runs opencode on an OpenRouter key; authority is
+# issues-only (labels, milestones, comments, close, fix dispatch) — it never
+# edits repo files. Note: label changes made with GITHUB_TOKEN do not fire
+# issues.labeled events, which is what keeps this loop-free; the fix
+# workflow is therefore dispatched explicitly (see the prompt) and backed by
+# its own nightly batch.
+
+name: Triage
+
+on:
+  issues:
+    types: [opened, edited]
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  actions: write # to dispatch fix.yml via workflow_dispatch
+
+concurrency:
+  group: triage-${{ github.event.issue.number || 'sweep' }}
+  cancel-in-progress: false
+
+env:
+  OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  OPENCODE_MODEL: openrouter/qwen/qwen3.8-max-0902
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libmpv-dev xvfb
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.10.12"
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          allow-prereleases: true
+
+      - name: Install the project
+        run: uv sync --all-extras --dev
+
+      - name: Install opencode
+        run: npm install -g opencode-ai@1.18.30
+
+      - name: Run triage agent
+        run: |
+          if [ "${{ github.event_name }}" = "issues" ]; then
+            MODE="MODE ISSUE ${{ github.event.issue.number }} (event: ${{ github.event.action }})"
+          else
+            MODE="MODE SWEEP"
+          fi
+          PROMPT="$(cat .github/prompts/triage.md)
+
+          ---
+          ${MODE}"
+          opencode run --auto -m "$OPENCODE_MODEL" "$PROMPT"
