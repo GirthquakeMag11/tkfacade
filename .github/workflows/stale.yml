@@ -1,0 +1,39 @@
+# Stale policy (SPEC.md section 8): comment after 30 idle days, close after
+# 15 more. Exempt: anything with a milestone, and the automation states that
+# mean work is live or waiting on a human. PRs are exempt — the automerge
+# job and normal review own their lifecycle.
+
+name: Stale
+
+on:
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark stale and close idle issues
+        uses: actions/stale@v9
+        with:
+          days-before-issue-stale: 30
+          days-before-issue-close: 15
+          days-before-pr-stale: -1
+          days-before-pr-close: -1
+          stale-issue-label: stale
+          exempt-issue-labels: "ready-to-fix, fix-in-progress, escalation"
+          exempt-all-issue-milestones: true
+          stale-issue-message: >
+            This issue has been idle for 30 days. It will close in 15 days
+            unless there is activity — a comment, new evidence, or a label
+            change all reset the clock. Issues awaiting reporter
+            information close on schedule; refiling with the missing fields
+            is always welcome.
+          close-issue-message: >
+            Closed after 45 idle days per the stale policy in
+            CONTRIBUTING.md. Reopen with new information, or refile via the
+            issue form / the downstream reporting kit.
