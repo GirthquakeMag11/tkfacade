@@ -8,17 +8,29 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
           lfs: true
 
-      - name: Install system dependencies
+      - name: Install system dependencies (Linux)
+        if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libmpv-dev xvfb
+
+      - name: Install system dependencies (macOS)
+        if: matrix.os == 'macos-latest'
+        run: brew install mpv
+
+      # Windows needs no system step: the Git-LFS-vendored
+      # src/tkfacade/media/libmpv DLLs serve the editable install.
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -41,5 +53,10 @@ jobs:
       - name: Run mypy
         run: uv run mypy src
 
-      - name: Run tests
+      - name: Run tests (Linux, virtual display)
+        if: matrix.os == 'ubuntu-latest'
         run: xvfb-run uv run pytest -q
+
+      - name: Run tests (Windows/macOS)
+        if: matrix.os != 'ubuntu-latest'
+        run: uv run pytest -q
