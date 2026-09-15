@@ -86,13 +86,20 @@ sessions with the prompts versioned in `.github/prompts/`.
   incomplete), assigns milestones, closes duplicates, and applies
   `ready-to-fix` to scoped, confirmed work. It never edits repo files.
 - **Fix agent** — dispatched for `ready-to-fix` issues (immediately after
-  triage, or by the nightly batch). Reproduces, fixes on a branch, adds the
-  regression test, passes the verify gate, runs the facade-principle check,
-  and opens a PR labeled `automerge`. One attempt per issue; anything
-  blocked escalates instead.
-- **Escalation** — a blocked agent comments on the issue mentioning
-  `@GirthquakeMag11`, applies `escalation`, removes `ready-to-fix`, and
-  stops. Answer in-thread; the nightly sweep re-routes the issue.
+  triage, or by the nightly batch), in parallel per issue with no volume
+  caps: downstream throughput is the priority. Reproduces, fixes on a
+  branch, adds the regression test, passes the verify gate, runs the
+  facade-principle check, and opens a PR labeled `automerge`.
+- **Escalation** — the maintainer is reachable *while agents run*, through
+  the escalation relay (`ops/escalation/`): when an agent needs
+  maintainer intent — ambiguous scope, a design decision, a principle
+  conflict, a repro contradicting the report — it asks directly via its
+  `ask_user` tool and blocks for the answer (2h window) instead of
+  guessing. Every Q&A is recorded on the issue. If the window lapses or
+  the relay is unreachable, the agent falls back to a GitHub escalation
+  comment mentioning `@GirthquakeMag11` with the `escalation` label and
+  stops; the nightly sweep re-routes once answered. Answer escalations
+  in-thread.
 - **Self-merge** — an hourly job merges `automerge` PRs whose CI has been
   green for 24h with no human objection. Comment, request changes, or
   remove the label to intervene; an intervened PR is never self-merged.
@@ -100,8 +107,10 @@ sessions with the prompts versioned in `.github/prompts/`.
   after 15 more. Milestones, `ready-to-fix`, `fix-in-progress`, and
   `escalation` are exempt.
 
-Budget caps: at most 3 concurrent fix runs, nightly batches of at most 5
-issues, one fix attempt per issue before escalation.
+Throughput is uncapped — no concurrency or per-night limits on fix runs;
+the only ceilings are GitHub's job limits and the OpenRouter spend. The
+regression-test, verify-gate, and principle-check guardrails are quality
+gates and always apply.
 
 ## Labels
 

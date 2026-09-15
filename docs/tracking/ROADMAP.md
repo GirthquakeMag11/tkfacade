@@ -121,3 +121,10 @@ are assigned by `/plan` or triage:
   matrix (hosted runners cannot run Tk at all; backlog item added for the
   self-hosted-Mac path). Windows crashes being deselected and filed
   (#5 keyboard edit; mpv teardown race next).
+- 2026-09-15 — Design revisions from the maintainer: fix throughput
+  uncapped (parallel per issue, no volume or attempt limits — quality
+  gates unchanged), and escalation redesigned around a first-party relay
+  (`ops/escalation/`): agents ask the maintainer directly via an MCP
+  `ask_user` tool at decision points and block for the answer (2h), with
+  GitHub escalation as the away-from-keyboard fallback. Relay deploys to
+  the maintainer's always-on machine via Tailscale Funnel.

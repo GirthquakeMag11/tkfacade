@@ -1,10 +1,17 @@
 # Fix agent (SPEC.md section 5).
 #
 # Dispatched per-issue by the triage agent (workflow_dispatch), by a
-# maintainer, or by the nightly batch. The concurrency group serializes
-# runs — a stricter budget than the SPEC's cap of 3 concurrent; displaced
+# maintainer, or by the nightly batch. Concurrency is per issue: different
+# issues fix in parallel (no volume caps — downstream throughput is the
+# priority), while a given issue never runs twice at once. Displaced
 # pending runs are recovered by the nightly batch, which re-lists every
-# ready-to-fix issue without an open PR.
+# ready-to-fix issue without an open PR. GitHub's own concurrent-job limits
+# and the OpenRouter spend are the only natural ceilings.
+#
+# The agent reaches the maintainer directly through the escalation relay's
+# MCP server (ops/escalation/) when it needs intent — see SPEC.md 5.4. If
+# the ESCALATION_* secrets are absent or the relay is down, ask_user
+# returns [UNAVAILABLE] and the agent falls back to GitHub escalation.
 
 name: Fix
 
@@ -24,7 +31,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: fix-agent
+  group: fix-${{ inputs.issue || 'batch' }}
   cancel-in-progress: false
 
 env:
@@ -63,6 +70,29 @@ jobs:
 
       - name: Install opencode
         run: npm install -g opencode-ai@1.18.30
+
+      - name: Configure escalation MCP (direct channel to maintainer)
+        env:
+          ESCALATION_RELAY_URL: ${{ secrets.ESCALATION_RELAY_URL }}
+          ESCALATION_TOKEN: ${{ secrets.ESCALATION_TOKEN }}
+        run: |
+          mkdir -p ~/.config/opencode
+          cat > ~/.config/opencode/opencode.json <<EOF
+          {
+            "\$schema": "https://opencode.ai/config.json",
+            "mcp": {
+              "escalation": {
+                "type": "local",
+                "command": ["python3", "$GITHUB_WORKSPACE/ops/escalation/mcp_server.py"],
+                "enabled": true,
+                "environment": {
+                  "ESCALATION_RELAY_URL": "$ESCALATION_RELAY_URL",
+                  "ESCALATION_TOKEN": "$ESCALATION_TOKEN"
+                }
+              }
+            }
+          }
+          EOF
 
       - name: Configure git identity
         run: |

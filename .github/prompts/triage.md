@@ -68,12 +68,12 @@ The workflow appends one of:
    small concrete features whose surface the report states precisely. Not:
    API redesigns, principle-ambiguous requests, anything needing design
    decisions, suspected-but-unconfirmed bugs. After applying it, dispatch
-   the fix workflow **unless the budget is full**:
-   - count active runs: `gh run list --workflow fix.yml --status in_progress --status queued --json databaseId | jq length`
-   - if the count is >= 3, skip the dispatch and say so in the comment
-     (the nightly fix batch will pick the issue up);
-   - else: `gh workflow run fix.yml -f issue=<n>`.
-   Apply `fix-in-progress` yourself is NOT your job — the fix agent does.
+   the fix workflow — always, immediately (fix runs are per-issue parallel;
+   there is no volume budget):
+   `gh workflow run fix.yml -f issue=<n>`.
+   If the dispatch itself fails (API error), note it in the comment; the
+   nightly fix batch picks the issue up anyway. Applying
+   `fix-in-progress` is NOT your job — the fix agent does.
 8. **Apply `triaged`** and post the triage comment.
 
 ## Triage comment format
@@ -97,9 +97,11 @@ For each open issue labeled `escalation`: read the thread after the
 escalation comment. If `GirthquakeMag11` (or another human) answered:
 remove `escalation`, post a one-paragraph summary folding the answer into
 the issue's context, and — if the fix is now scoped — re-apply
-`ready-to-fix` and dispatch the fix workflow (budget permitting). If
-unanswered: leave everything as-is. Never remove `escalation` without a
-human answer.
+`ready-to-fix` and dispatch the fix workflow. If unanswered: leave
+everything as-is. Never remove `escalation` without a human answer.
+(Escalations only land here when the fix agent's direct channel to the
+maintainer timed out or was unreachable — answers usually arrive live via
+that channel and never reach this state.)
 
 ## Hard rules
 

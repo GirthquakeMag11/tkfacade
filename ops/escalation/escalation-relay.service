@@ -1,0 +1,22 @@
+[Unit]
+Description=tkfacade escalation relay
+Documentation=file:///opt/tkfacade-escalation/README.md
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Adjust User/paths to the deployment (README.md step 1-4).
+User=tkfacade-relay
+ExecStart=/usr/bin/python3 /opt/tkfacade-escalation/relay.py
+EnvironmentFile=/etc/tkfacade-escalation.env
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/tkfacade-escalation
+
+[Install]
+WantedBy=multi-user.target

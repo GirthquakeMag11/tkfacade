@@ -206,10 +206,15 @@ unlabeled for human planning via `/plan`.
 
 Per issue, the agent:
 
-1. Reproduces the issue from its report (bugs must reproduce first; a
-   failed repro attempt escalates instead of guessing).
+1. Reproduces the issue from its report. A repro that contradicts the
+   report is a question for the maintainer (5.4), not a guess-and-check
+   loop.
 2. Branches (`fix/<issue>-<slug>`), implements the minimal change following
-   repo conventions.
+   repo conventions, iterating as much as the problem genuinely needs.
+   Whenever a decision stops being mechanical — two defensible designs,
+   scope beyond the issue, a principle in tension — the agent asks the
+   maintainer *before* choosing (5.4). Guessing intent and surfacing the
+   guess afterwards is the failure mode this design exists to prevent.
 3. **Regression test required**: adds/extends a test that fails before the
    fix and passes after.
 4. **Local verify gate**: `uv run ruff check src tests`, `uv run mypy src`,
@@ -218,28 +223,46 @@ Per issue, the agent:
    two principles (does the fix keep downstream from needing tkinter or
    breaking encapsulation?) and records the check in the PR body.
 6. Opens a PR: body links the issue (`Closes #N`), includes repro, fix
-   summary, test added, verify-gate results, and the principle check.
-7. One fix attempt per issue. Failure at any step → escalation (5.4), not a
-   retry loop.
+   summary, test added, verify-gate results, the principle check, and a
+   summary of any maintainer input that shaped the change.
 
-**Budget caps (conservative):** max 3 concurrent fix runs; nightly batch
-caps at 5 issues; one attempt per issue before escalation. Model choice and
-caps are workflow-config values, revisited as spend is observed.
+**Throughput is uncapped.** No concurrency cap, no per-night volume cap, no
+attempt limit: downstream projects depend on this pipeline not being a
+bottleneck. Fix runs are parallel per issue (a given issue never runs twice
+at once); the only ceilings are GitHub's concurrent-job limits and the
+OpenRouter spend. The guardrails above are quality gates, not throughput
+gates. Revisit only if spend or noise becomes a problem.
 
 ### 5.4 Escalation — direct channel to the maintainer
 
-When the agent is blocked (repro fails, fix exceeds scope, verify gate red
-after a genuine attempt, design decision needed, principle conflict), it:
+The maintainer is reachable *while the agent runs*. The channel is a
+first-party escalation relay (`ops/escalation/`, stdlib-only, no
+third-party services): a question-queue server on the maintainer's
+always-on home machine, exposed to GitHub Actions through Tailscale
+Funnel; the agent side is an MCP server exposing one blocking tool,
+`ask_user`; the maintainer side is a browser tab (served by the relay)
+with desktop notifications, a beep, and reply boxes.
 
-1. Posts an escalation comment **on the issue**, mentioning
-   `@GirthquakeMag11`, stating precisely what is blocked and what decision
-   or information is needed.
-2. Applies the `escalation` label and removes `ready-to-fix`.
-3. Stops work on that issue.
-
-The maintainer answers in-thread. The nightly triage sweep detects answered
-escalations: it re-applies `ready-to-fix` (with the answer folded into the
-issue context) or re-routes the issue per the maintainer's reply.
+- **When**: any point needing maintainer intent — ambiguous scope, design
+  decisions, principle conflicts, repro/report contradictions,
+  misclassifications. The agent asks before guessing, not after failing.
+- **How**: `ask_user(question, context, issue)` blocks up to the reply
+  window (default 120 minutes). An answered question returns the answer;
+  the agent posts the Q&A verbatim to the issue (durable record) and
+  continues working.
+- **Timeout or relay unavailable**: the tool returns a `[TIMEOUT]` /
+  `[UNAVAILABLE]` marker and the agent falls back to GitHub escalation —
+  a comment on the issue mentioning `@GirthquakeMag11` (quoting the
+  question asked), the `escalation` label applied, `ready-to-fix` and
+  `fix-in-progress` removed, work stopped for that issue. The nightly
+  triage sweep detects answered GitHub escalations and re-routes the issue.
+  Nothing is silently dropped while the maintainer is away.
+- **Infrastructure failures** of the agent's own run (broken runner,
+  failed sync, network faults) are not intent questions: they go straight
+  to GitHub escalation without burning a reply window.
+- The triage agent has **no** channel: it decides conservatively (comment,
+  leave open, leave unassigned) and never blocks on the maintainer. Status
+  notifications are not sent; the channel carries questions only.
 
 ### 5.5 Merge policy — self-merge when green
 
@@ -376,6 +399,9 @@ and the checks consistent.)
 | Item | Where | Notes |
 | --- | --- | --- |
 | `OPENROUTER_API_KEY` | repo Actions secret | triage + fix agents |
+| `ESCALATION_RELAY_URL` | repo Actions secret | public URL of the escalation relay (Tailscale Funnel) |
+| `ESCALATION_TOKEN` | repo Actions secret | relay ask-side bearer token; the UI token never enters CI |
+| Escalation relay host | maintainer's always-on home machine | `ops/escalation/` deployed via systemd + Tailscale Funnel; see its README |
 | PyPI trusted publishing | pypi.org project config | trusts `release.yml` on this repo; no secret stored |
 | Branch protection on `main` | repo settings | required checks = CI matrix; bot merge allowed; direct push disallowed |
 | Labels | repo settings | the 2.4 set, created by scaffold |
@@ -412,6 +438,12 @@ docs/tracking/
     README.md
     tkf-report-bug.md
     tkf-request-feature.md
+ops/escalation/
+  relay.py                    # question-queue server (stdlib only)
+  mcp_server.py               # ask_user MCP tool for the fix agent
+  ui.html                     # maintainer's browser client
+  escalation-relay.service    # systemd unit template
+  README.md                   # deployment + operations
 CHANGELOG.md
 CONTRIBUTING.md
 README.md                    # add: releases, consumption policy, links
@@ -427,26 +459,35 @@ After this spec is approved:
    review.
 2. **Tracking scaffold** — labels, issue forms, CONTRIBUTING.md, downstream
    kit, CHANGELOG.md skeleton.
-3. **CI upgrade** — 3-OS matrix with full media tests; verify green.
+3. **CI upgrade** — matrix with full media tests; verify green. (Landed as
+   Ubuntu + Windows; macOS is out of hosted CI — see 6.2 platform facts.)
 4. **CD** — release.yml, PyPI trusted-publishing setup (one maintainer step
    on pypi.org), tag **v0.1.0**, confirm installability downstream.
-5. **Triage agent** — triage.yml event + nightly; observe on seeded test
+5. **Escalation relay** — deploy `ops/escalation/` to the maintainer's
+   always-on machine (systemd + Tailscale Funnel), wire the
+   `ESCALATION_RELAY_URL` / `ESCALATION_TOKEN` secrets, verify
+   end-to-end. Until then `ask_user` reports `[UNAVAILABLE]` and agents
+   use the GitHub fallback — safe degradation.
+6. **Triage agent** — triage.yml event + nightly; observe on seeded test
    issues before granting routine full authority.
-6. **Fix agent** — fix.yml + automerge.yml + escalation flow; branch
-   protection configured; observe first cycles under the budget caps.
-7. **Housekeeping automation** — stale.yml, dependabot.yml.
+7. **Fix agent** — fix.yml + automerge.yml + escalation flow; branch
+   protection configured; observe first cycles.
+8. **Housekeeping automation** — stale.yml, dependabot.yml.
 
-Each step is independently verifiable; steps 5–6 run in observation mode
+Each step is independently verifiable; steps 6–7 run in observation mode
 (agent comments proposals, maintainer applies) for their first cycle if the
 maintainer prefers before full authority engages.
 
 ## 13. Open implementation decisions (build time)
 
 - Exact OpenRouter models for triage vs fix agents (cost/capability split),
-  pinned in workflow config.
+  pinned in workflow config. Current default for both:
+  `openrouter/qwen/qwen3.8-max-0902` — revisit as spend/quality is observed.
 - Bot identity for self-merge under branch protection (`GITHUB_TOKEN`
   sufficiency vs dedicated bot app/PAT).
-- Whether the triage nightly sweep and the fix nightly batch share one
-  schedule slot.
+- Tailscale Funnel enablement on the relay host (tailnet policy) — confirmed
+  at relay deployment.
 - Windows CI confirmation that the LFS-vendored libmpv DLLs load under the
-  test suite (fallback: winget/choco mpv install).
+  test suite — confirmed working (first matrix run loaded mpv; the crashes
+  found are library teardown defects, tracked as issues #5/#6, not
+  environment faults).

@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tkfacade escalations</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 system-ui, sans-serif; background: #14161a; color: #d7dae0; }
+  header { display: flex; align-items: center; gap: 12px; padding: 12px 20px;
+           background: #1b1e24; border-bottom: 1px solid #2a2e37; position: sticky; top: 0; }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  #dot { width: 10px; height: 10px; border-radius: 50%; background: #555; }
+  #dot.ok { background: #3fb950; } #dot.bad { background: #f85149; }
+  #count { margin-left: auto; color: #8b949e; }
+  main { max-width: 860px; margin: 0 auto; padding: 20px; }
+  .card { background: #1b1e24; border: 1px solid #2a2e37; border-radius: 8px;
+          padding: 16px; margin-bottom: 14px; }
+  .card.open { border-left: 4px solid #d29922; }
+  .card.answered { border-left: 4px solid #3fb950; opacity: .75; }
+  .card.expired { border-left: 4px solid #f85149; opacity: .75; }
+  .q { font-size: 15px; font-weight: 600; white-space: pre-wrap; }
+  .meta { color: #8b949e; font-size: 12px; margin-top: 4px; }
+  .meta a { color: #58a6ff; text-decoration: none; }
+  .ctx { white-space: pre-wrap; background: #111318; border: 1px solid #2a2e37;
+         border-radius: 6px; padding: 10px; margin-top: 10px; font-size: 13px;
+         max-height: 260px; overflow: auto; }
+  textarea { width: 100%; margin-top: 10px; background: #111318; color: #d7dae0;
+             border: 1px solid #2a2e37; border-radius: 6px; padding: 10px;
+             font: 13px/1.5 ui-monospace, monospace; resize: vertical; min-height: 70px; }
+  button { background: #238636; color: #fff; border: 0; border-radius: 6px;
+           padding: 8px 18px; font-weight: 600; cursor: pointer; margin-top: 8px; }
+  button:hover { background: #2ea043; }
+  button.secondary { background: #30363d; }
+  .answer { white-space: pre-wrap; margin-top: 10px; padding: 10px;
+            background: #111318; border-radius: 6px; border: 1px solid #2a2e37; }
+  #setup { display: flex; gap: 8px; margin-bottom: 20px; }
+  #setup input { flex: 1; background: #111318; color: #d7dae0; border: 1px solid #2a2e37;
+                 border-radius: 6px; padding: 8px 10px; font: 13px ui-monospace, monospace; }
+  .empty { color: #8b949e; text-align: center; padding: 40px 0; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: #8b949e; }
+</style>
+</head>
+<body>
+<header>
+  <div id="dot"></div>
+  <h1>tkfacade escalations</h1>
+  <span id="count"></span>
+</header>
+<main>
+  <div id="setup">
+    <input id="token" type="password" placeholder="UI token (stored in this browser only)"
+           autocomplete="off">
+    <button class="secondary" onclick="saveToken()">Save</button>
+    <button class="secondary" onclick="enableNotify()">Enable notifications</button>
+  </div>
+  <div id="open"></div>
+  <h2>History</h2>
+  <div id="history"></div>
+</main>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+let known = new Set(JSON.parse(localStorage.getItem("tkfEscSeen") || "[]"));
+
+function token() { return localStorage.getItem("tkfEscToken") || ""; }
+function saveToken() {
+  localStorage.setItem("tkfEscToken", $("token").value.trim());
+  $("token").value = "";
+  refresh();
+}
+function enableNotify() {
+  Notification.requestPermission().then((p) => alert("Notification permission: " + p));
+}
+function beep() {
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = 880; gain.gain.value = 0.15;
+    osc.start();
+    setTimeout(() => { osc.stop(); ctx.close(); }, 400);
+  } catch (e) { /* audio unavailable; the notification and badge remain */ }
+}
+function fmtAge(ts) {
+  const s = Math.max(0, Math.floor((Date.now() / 1000) - ts));
+  if (s < 60) return s + "s ago";
+  if (s < 3600) return Math.floor(s / 60) + "m ago";
+  return Math.floor(s / 3600) + "h ago";
+}
+function fmtLeft(deadline) {
+  const s = Math.floor(deadline - Date.now() / 1000);
+  if (s <= 0) return "expired";
+  return Math.floor(s / 60) + "m left";
+}
+function esc(s) {
+  const d = document.createElement("div");
+  d.textContent = s == null ? "" : String(s);
+  return d.innerHTML;
+}
+function issueLink(issue) {
+  if (!issue) return "";
+  const num = String(issue).match(/(\d+)\s*$/);
+  const url = String(issue).startsWith("http") ? issue
+    : "https://github.com/GirthquakeMag11/tkfacade/issues/" + (num ? num[1] : issue);
+  return ' &middot; <a href="' + esc(url) + '" target="_blank">' + esc(issue) + "</a>";
+}
+function card(q) {
+  const run = q.run ? ' &middot; <a href="' + esc(q.run) + '" target="_blank">run</a>' : "";
+  let body =
+    '<div class="card ' + q.status + '">' +
+    '<div class="q">' + esc(q.question) + "</div>" +
+    '<div class="meta">' + esc(fmtAge(q.created)) + issueLink(q.issue) + run +
+    (q.status === "open" ? " &middot; " + esc(fmtLeft(q.deadline)) : "") + "</div>" +
+    (q.context ? '<div class="ctx">' + esc(q.context) + "</div>" : "");
+  if (q.status === "open") {
+    body +=
+      '<textarea id="a-' + q.id + '" placeholder="Your answer — the agent is blocking on this"></textarea>' +
+      '<button onclick="answer(\'' + q.id + '\')">Send answer</button>';
+  } else {
+    body += '<div class="answer">' +
+      (q.status === "answered" ? esc(q.answer) : "<em>" + q.status + " — no answer delivered</em>") +
+      "</div>";
+  }
+  return body + "</div>";
+}
+async function answer(id) {
+  const text = $("a-" + id).value.trim();
+  if (!text) return;
+  const resp = await fetch("/api/answer/" + id, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + token() },
+    body: JSON.stringify({ answer: text }),
+  });
+  if (!resp.ok) { alert("Answer failed: " + resp.status); return; }
+  refresh();
+}
+async function refresh() {
+  const dot = $("dot");
+  if (!token()) { dot.className = ""; $("count").textContent = "no token"; return; }
+  let data;
+  try {
+    const resp = await fetch("/api/questions?state=all", {
+      headers: { Authorization: "Bearer " + token() },
+    });
+    if (resp.status === 401) { dot.className = "bad"; $("count").textContent = "bad token"; return; }
+    data = await resp.json();
+  } catch (e) { dot.className = "bad"; $("count").textContent = "unreachable"; return; }
+  dot.className = "ok";
+  const qs = data.questions || [];
+  const open = qs.filter((q) => q.status === "open");
+  $("count").textContent = open.length + " open";
+  document.title = (open.length ? "(" + open.length + ") " : "") + "tkfacade escalations";
+  for (const q of open) {
+    if (!known.has(q.id)) {
+      known.add(q.id);
+      localStorage.setItem("tkfEscSeen", JSON.stringify([...known].slice(-200)));
+      beep();
+      if (Notification.permission === "granted") {
+        new Notification("tkfacade agent needs you", { body: q.question.slice(0, 180), tag: q.id });
+      }
+    }
+  }
+  $("open").innerHTML = open.length ? open.map(card).join("")
+    : '<div class="empty">Nothing waiting.</div>';
+  const done = qs.filter((q) => q.status !== "open").slice(-20).reverse();
+  $("history").innerHTML = done.map(card).join("") || '<div class="empty">No history yet.</div>';
+}
+if (token()) $("token").placeholder = "token saved (paste to replace)";
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>
