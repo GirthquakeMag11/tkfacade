@@ -6,12 +6,18 @@ on:
   pull_request:
     branches: [main]
 
+# macOS is not in the matrix: GitHub's macOS runners are headless VMs with
+# no window server and no Xvfb equivalent, so no GUI test can run there —
+# fatal for a GUI library's coverage. macOS returns via a self-hosted
+# runner on real Mac hardware when downstream demand materializes
+# (SPEC.md 6.2, ROADMAP backlog).
+
 jobs:
   test:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Check out repository
@@ -24,10 +30,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libmpv-dev xvfb
-
-      - name: Install system dependencies (macOS)
-        if: matrix.os == 'macos-latest'
-        run: brew install mpv
 
       # Windows needs no system step: the Git-LFS-vendored
       # src/tkfacade/media/libmpv DLLs serve the editable install.
@@ -57,19 +59,14 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: xvfb-run uv run pytest -q
 
-      # macOS runners have no window server and no Xvfb equivalent, so any
-      # test that opens a window segfaults in TkpInit. The macOS job runs
-      # the non-GUI subset; the full suite is required on Linux+Windows.
-      - name: Run tests (macOS, non-GUI subset)
-        if: matrix.os == 'macos-latest'
-        run: uv run pytest -q -m "not gui"
-
       # Known Windows-only crashes are deselected explicitly and tracked as
       # GitHub issues; the list shrinks as fixes land (ROADMAP theme T2).
-      # TEMPORARY: -v to identify the crashing test; revert to -q after.
+      # TEMPORARY: -v -v (double, to override the -q in pyproject addopts)
+      # to identify the next crashing test; revert to -q once the deselect
+      # list is complete.
       - name: Run tests (Windows, full suite minus known crashes)
         if: matrix.os == 'windows-latest'
         shell: bash
         run: |
           ARGS=$(grep -v '^#' .github/ci/windows-deselect.txt | sed '/^$/d; s/^/--deselect /' | tr '\n' ' ')
-          uv run pytest -v $ARGS
+          uv run pytest -v -v $ARGS

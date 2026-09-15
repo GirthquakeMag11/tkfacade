@@ -20,11 +20,16 @@ PyPI and downstream projects pin `tkfacade==0.1.0`.
 
 ### T2 — Platform hardening — next
 
-The suite (688 tests, 83 gui-marked) has only ever run on Linux under xvfb.
-The 3-OS CI matrix will surface first-run failures on Windows (vendored
-LFS libmpv DLLs, path and display differences) and macOS (Homebrew mpv,
-Aqua tkinter behavior). Scope: get the matrix green on all three OSes and
-keep it green; fix or gate what it finds.
+The suite (688 tests, 83 gui-marked) had only ever run on Linux under
+xvfb. The CI matrix now runs the full suite on Ubuntu (xvfb) and Windows
+(native headless) — macOS is out of hosted CI entirely: GitHub's macOS
+runners have no window server and no Xvfb equivalent, so no GUI test can
+run there, and for a GUI library a non-GUI subset proves too little to be
+worth a required job (SPEC.md 6.2). Windows first-run findings are being
+deselected-and-filed per crash (`.github/ci/windows-deselect.txt`): a
+read-only-input keyboard crash (#5) and an mpv render-context teardown
+race. Scope: get the matrix green, shrink the deselect list to zero, and
+keep it green.
 
 ### T3 — Documentation integrity — next
 
@@ -99,6 +104,9 @@ are assigned by `/plan` or triage:
 
 ### Backlog (no milestone)
 
+- macOS support: a self-hosted runner on real Mac hardware (logged-in user
+  session) is the only path to macOS GUI testing. Blocked on hardware;
+  demand-driven — downstream macOS projects wait until this exists.
 - API reference / docs-site decision (T3, later half)
 - Experiment graduations from T5 without downstream demand yet
 - Python 3.13 support if a downstream project ever needs it (currently
@@ -108,3 +116,8 @@ are assigned by `/plan` or triage:
 
 - 2026-09-13 — Roadmap seeded from repo-state survey (SPEC.md 12.1).
   No issues filed yet; tracker goes live with the v0.1.0 build.
+- 2026-09-15 — v0.1.0 build underway: scaffold committed, labels and
+  milestones created, first matrix runs analyzed. macOS dropped from the
+  matrix (hosted runners cannot run Tk at all; backlog item added for the
+  self-hosted-Mac path). Windows crashes being deselected and filed
+  (#5 keyboard edit; mpv teardown race next).

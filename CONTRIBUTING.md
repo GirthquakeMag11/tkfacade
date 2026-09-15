@@ -42,9 +42,10 @@ uv sync --all-extras --dev
 ```
 
 Media tests need libmpv: `libmpv-dev` (Linux, plus `xvfb` for display),
-`brew install mpv` (macOS), or the Git-LFS-vendored DLLs (Windows — clone
-with LFS enabled). The vendored copy is development-only; distributions
-exclude it and find libmpv on the system path.
+`brew install mpv` (macOS, for local runs — macOS has no hosted CI, see
+below), or the Git-LFS-vendored DLLs (Windows — clone with LFS enabled).
+The vendored copy is development-only; distributions exclude it and find
+libmpv on the system path.
 
 ## The verify gate
 
@@ -66,8 +67,12 @@ needing a display carry the `gui` marker.
 - Bug fixes require a regression test that fails before the fix and passes
   after.
 - One-line imperative commit messages, repo style.
-- PRs must pass the CI matrix (Ubuntu, Windows, macOS — full suite
-  including media on all three) before merge.
+- PRs must pass the CI matrix (Ubuntu and Windows, full suite including
+  media on both) before merge. macOS is not in CI: GitHub's macOS runners
+  cannot run Tk at all, so macOS coverage waits on a self-hosted Mac
+  runner (SPEC.md 6.2, ROADMAP backlog). Known Windows-only process
+  crashes are deselected via `.github/ci/windows-deselect.txt`, each entry
+  backed by an issue.
 - `main` is protected: no direct pushes; required checks enforced.
 
 ## Automation lifecycle

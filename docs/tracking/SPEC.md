@@ -269,32 +269,32 @@ required; repo-style one-line imperative messages continue.
 
 `ci.yml` runs on push to `main` and on every PR:
 
-- **OS**: `ubuntu-latest`, `windows-latest`, `macos-latest`.
+- **OS**: `ubuntu-latest`, `windows-latest`.
 - **Python**: 3.14 only (matches `requires-python >= 3.14`).
 - **Tooling**: uv (pinned, cached).
-- **System deps for full media tests everywhere**:
+- **System deps for full media tests on both platforms**:
   - Ubuntu: `libmpv-dev`, `xvfb` (tests run under `xvfb-run`).
   - Windows: the Git-LFS-vendored `src/tkfacade/media/libmpv` DLLs
     (checkout with `lfs: true`).
-  - macOS: `mpv` via Homebrew.
 - **Steps**: `uv sync --all-extras --dev`, `ruff check src tests`,
   `mypy src`, full `pytest` suite (including gui-marked tests under the
-  virtual display / native display per OS).
+  virtual display / native headless display per OS).
 
-The media extra is exercised on all three platforms; no smoke-only jobs.
+**Platform facts** (found by the first matrix runs, 2026-09-14/15):
 
-**Platform facts** (found by the first matrix run, 2026-09-14):
-
-- GitHub's macOS runners are headless VMs with no window server and no
-  Xvfb equivalent — Tk segfaults in `TkpInit` on any window creation. The
-  macOS job therefore runs the non-GUI subset (`pytest -m "not gui"`); the
-  full suite stays required on Linux and Windows. This is a runner
-  limitation, not a library defect.
+- **macOS is out of the matrix.** GitHub's macOS runners are headless VMs
+  with no window server and no Xvfb equivalent — Tk segfaults in `TkpInit`
+  on any window creation, so no GUI test can run there, and for a GUI
+  library a non-GUI subset proves too little to be worth a required job.
+  macOS returns to CI only via a self-hosted runner on real Mac hardware
+  with a logged-in user session, when a downstream project actually runs
+  on macOS (ROADMAP backlog — demand-driven, like every platform story in
+  this project). Downstream macOS projects wait until then.
 - GitHub's Windows runners run Tk headless fine; individual tests that
-  hard-crash the process (access violations) are deselected via an
-  explicit list at `.github/ci/windows-deselect.txt`, each entry backed by
-  a GitHub issue tracking the underlying defect (ROADMAP theme T2). The
-  list shrinks as fixes land.
+  hard-crash the process (access violations, D3D11 device-removed codes)
+  are deselected via an explicit list at `.github/ci/windows-deselect.txt`,
+  each entry backed by a GitHub issue tracking the underlying defect
+  (ROADMAP theme T2). The list shrinks as fixes land.
 
 ## 7. Release and delivery
 

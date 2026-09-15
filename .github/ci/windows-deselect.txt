@@ -6,3 +6,12 @@
 # crash (access violation / segfault): ordinary failures fix forward.
 
 tests/test_text.py::test_a_read_only_input_refuses_every_keyboard_edit
+
+# mpv render-context teardown race: Root.destroy() while libmpv's event
+# thread still holds the window -> code 0xe24c4a02 (D3D11 device removed),
+# process death. Crash sits at the media_display -> media_player boundary
+# with MPVEventHandlerThread alive (run 34915085020). Whole file deselected
+# until the shutdown ordering is fixed; test_video_display.py and the video
+# paths of test_composite_events.py / test_nametowrapper.py /
+# test_traversal.py are suspects for the same race.
+tests/test_media_player.py
