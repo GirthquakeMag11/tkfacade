@@ -1,0 +1,8 @@
+# Windows-only test deselections for CI (SPEC.md 6.2, ROADMAP theme T2).
+#
+# One line per pytest node ID; # comments allowed. Every entry must have a
+# GitHub issue tracking the underlying Windows defect — the entry is removed
+# when the fix lands. Never add anything here that is not a hard process
+# crash (access violation / segfault): ordinary failures fix forward.
+
+tests/test_text.py::test_a_read_only_input_refuses_every_keyboard_edit

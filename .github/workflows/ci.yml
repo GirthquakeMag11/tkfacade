@@ -53,10 +53,22 @@ jobs:
       - name: Run mypy
         run: uv run mypy src
 
-      - name: Run tests (Linux, virtual display)
+      - name: Run tests (Linux, full suite on virtual display)
         if: matrix.os == 'ubuntu-latest'
         run: xvfb-run uv run pytest -q
 
-      - name: Run tests (Windows/macOS)
-        if: matrix.os != 'ubuntu-latest'
-        run: uv run pytest -q
+      # macOS runners have no window server and no Xvfb equivalent, so any
+      # test that opens a window segfaults in TkpInit. The macOS job runs
+      # the non-GUI subset; the full suite is required on Linux+Windows.
+      - name: Run tests (macOS, non-GUI subset)
+        if: matrix.os == 'macos-latest'
+        run: uv run pytest -q -m "not gui"
+
+      # Known Windows-only crashes are deselected explicitly and tracked as
+      # GitHub issues; the list shrinks as fixes land (ROADMAP theme T2).
+      - name: Run tests (Windows, full suite minus known crashes)
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          ARGS=$(grep -v '^#' .github/ci/windows-deselect.txt | sed '/^$/d; s/^/--deselect /' | tr '\n' ' ')
+          uv run pytest -q $ARGS

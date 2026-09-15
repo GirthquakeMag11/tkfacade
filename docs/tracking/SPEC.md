@@ -283,6 +283,19 @@ required; repo-style one-line imperative messages continue.
 
 The media extra is exercised on all three platforms; no smoke-only jobs.
 
+**Platform facts** (found by the first matrix run, 2026-09-14):
+
+- GitHub's macOS runners are headless VMs with no window server and no
+  Xvfb equivalent — Tk segfaults in `TkpInit` on any window creation. The
+  macOS job therefore runs the non-GUI subset (`pytest -m "not gui"`); the
+  full suite stays required on Linux and Windows. This is a runner
+  limitation, not a library defect.
+- GitHub's Windows runners run Tk headless fine; individual tests that
+  hard-crash the process (access violations) are deselected via an
+  explicit list at `.github/ci/windows-deselect.txt`, each entry backed by
+  a GitHub issue tracking the underlying defect (ROADMAP theme T2). The
+  list shrinks as fixes land.
+
 ## 7. Release and delivery
 
 ### 7.1 Versioning
