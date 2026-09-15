@@ -1,0 +1,44 @@
+# One-shot diagnostic for issue #5: does the runner session give Tk a
+# reliable clipboard? Dispatch only — never runs on push/PR, adds no
+# required checks. Windows is the subject; Ubuntu runs the same probe as
+# a control group (the win32 phase self-skips there).
+
+name: Clipboard probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install xvfb (Linux control)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          allow-prereleases: true
+
+      - name: Run clipboard probe
+        shell: bash
+        run: |
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+            xvfb-run python -u .github/probes/windows_clipboard_probe.py
+          else
+            python -u .github/probes/windows_clipboard_probe.py
+          fi
