@@ -35,7 +35,19 @@ from __future__ import annotations
 import subprocess
 import sys
 
-PHASES = ("info", "win32", "tk-basic", "tk-empty-get", "tk-stress", "readonly-events")
+PHASES = (
+    "info",
+    "win32",
+    "win32-retry",
+    "tk-basic",
+    "tk-bisect",
+    "tk-withdraw-update",
+    "tk-mapped-noupdate",
+    "tk-empty-get",
+    "tk-stress",
+    "tk-widgets-noevents",
+    "readonly-events",
+)
 REPEATS = 3
 CHILD_TIMEOUT = 600
 
@@ -95,7 +107,8 @@ def phase_info() -> None:
 
 # ---------------------------------------------------------------- win32
 
-def _win32_roundtrip(text: str) -> str:
+def _win32_roundtrip_inner(text: str) -> str:
+    """The clipboard is already open — write, read back, return."""
     import ctypes
     from ctypes import wintypes
 
@@ -114,33 +127,40 @@ def _win32_roundtrip(text: str) -> str:
     user32.GetClipboardData.restype = ctypes.c_void_p
     user32.GetClipboardData.argtypes = [wintypes.UINT]
 
+    user32.EmptyClipboard()
+    data = text.encode("utf-16-le") + b"\x00\x00"
+    handle = kernel32.GlobalAlloc(GMEM_MOVEABLE, len(data))
+    if not handle:
+        raise RuntimeError(f"GlobalAlloc failed ({ctypes.GetLastError()})")
+    ptr = kernel32.GlobalLock(handle)
+    if not ptr:
+        raise RuntimeError(f"GlobalLock failed ({ctypes.GetLastError()})")
+    try:
+        ctypes.memmove(ptr, data, len(data))
+    finally:
+        kernel32.GlobalUnlock(handle)
+    if not user32.SetClipboardData(CF_UNICODETEXT, handle):
+        raise RuntimeError(f"SetClipboardData failed ({ctypes.GetLastError()})")
+    got_handle = user32.GetClipboardData(CF_UNICODETEXT)
+    if not got_handle:
+        raise RuntimeError(f"GetClipboardData empty ({ctypes.GetLastError()})")
+    got_ptr = kernel32.GlobalLock(got_handle)
+    if not got_ptr:
+        raise RuntimeError(f"GlobalLock(read) failed ({ctypes.GetLastError()})")
+    try:
+        return ctypes.wstring_at(got_ptr)
+    finally:
+        kernel32.GlobalUnlock(got_handle)
+
+
+def _win32_roundtrip(text: str) -> str:
+    import ctypes
+
+    user32 = ctypes.windll.user32
     if not user32.OpenClipboard(None):
         raise RuntimeError(f"OpenClipboard failed ({ctypes.GetLastError()})")
     try:
-        user32.EmptyClipboard()
-        data = text.encode("utf-16-le") + b"\x00\x00"
-        handle = kernel32.GlobalAlloc(GMEM_MOVEABLE, len(data))
-        if not handle:
-            raise RuntimeError(f"GlobalAlloc failed ({ctypes.GetLastError()})")
-        ptr = kernel32.GlobalLock(handle)
-        if not ptr:
-            raise RuntimeError(f"GlobalLock failed ({ctypes.GetLastError()})")
-        try:
-            ctypes.memmove(ptr, data, len(data))
-        finally:
-            kernel32.GlobalUnlock(handle)
-        if not user32.SetClipboardData(CF_UNICODETEXT, handle):
-            raise RuntimeError(f"SetClipboardData failed ({ctypes.GetLastError()})")
-        got_handle = user32.GetClipboardData(CF_UNICODETEXT)
-        if not got_handle:
-            raise RuntimeError(f"GetClipboardData empty ({ctypes.GetLastError()})")
-        got_ptr = kernel32.GlobalLock(got_handle)
-        if not got_ptr:
-            raise RuntimeError(f"GlobalLock(read) failed ({ctypes.GetLastError()})")
-        try:
-            return ctypes.wstring_at(got_ptr)
-        finally:
-            kernel32.GlobalUnlock(got_handle)
+        return _win32_roundtrip_inner(text)
     finally:
         user32.CloseClipboard()
 
@@ -157,6 +177,37 @@ def phase_win32() -> None:
         if i % 20 == 19:
             print(f"win32: {i + 1}/100 round-trips ok", flush=True)
     print("win32: ok (100/100 round-trips)", flush=True)
+
+
+def phase_win32_retry() -> None:
+    """win32 with the standard OpenClipboard retry loop — isolates whether
+    the occasional ACCESS_DENIED is ordinary transient contention."""
+    if sys.platform != "win32":
+        print("win32-retry: skipped (not Windows)", flush=True)
+        return
+    import ctypes
+    import time
+
+    user32 = ctypes.windll.user32
+    retries = 0
+    for i in range(300):
+        text = f"probe-retry-{i}-\u00e9\u2713"
+        for attempt in range(25):
+            if user32.OpenClipboard(None):
+                break
+            if ctypes.GetLastError() != 5 or attempt == 24:
+                raise RuntimeError(f"OpenClipboard failed ({ctypes.GetLastError()})")
+            retries += 1
+            time.sleep(0.02)
+        try:
+            got = _win32_roundtrip_inner(text)
+        finally:
+            user32.CloseClipboard()
+        if got != text:
+            raise AssertionError(f"iteration {i}: wrote {text!r}, read {got!r}")
+        if i % 60 == 59:
+            print(f"win32-retry: {i + 1}/300 round-trips ok ({retries} retries so far)", flush=True)
+    print(f"win32-retry: ok (300/300 round-trips, {retries} retries needed)", flush=True)
 
 
 # ---------------------------------------------------------------- tk
@@ -230,6 +281,96 @@ def phase_tk_stress() -> None:
             root.destroy()
 
 
+def phase_tk_bisect() -> None:
+    """Pinpoint the faulting call: one flushed print between every step of
+    the exact tk-basic sequence. The last printed line localizes a crash."""
+    import tkinter
+
+    print("bisect: importing tkinter", flush=True)
+    root = tkinter.Tk()
+    print("bisect: root created", flush=True)
+    root.withdraw()
+    print("bisect: root withdrawn", flush=True)
+    root.clipboard_clear()
+    print("bisect: clipboard_clear (api) ok", flush=True)
+    root.clipboard_append("bisect")
+    print("bisect: clipboard_append (api) ok", flush=True)
+    value = root.clipboard_get()
+    print(f"bisect: clipboard_get (api) ok -> {value!r}", flush=True)
+    root.tk.call("clipboard", "clear")
+    print("bisect: clipboard clear (tcl) ok", flush=True)
+    root.tk.call("clipboard", "append", "raw")
+    print("bisect: clipboard append (tcl) ok", flush=True)
+    raw = root.tk.call("clipboard", "get")
+    print(f"bisect: clipboard get (tcl) ok -> {raw!r}", flush=True)
+    root.destroy()
+    print("bisect: root destroyed — sequence fully clean", flush=True)
+
+
+def phase_tk_withdraw_update() -> None:
+    """Withdrawn root that pumps update() once before any clipboard op —
+    isolates 'never processed events' from 'withdrawn'."""
+    import tkinter
+
+    root = tkinter.Tk()
+    root.withdraw()
+    root.update()
+    print("withdraw-update: root withdrawn and updated", flush=True)
+    try:
+        for i in range(10):
+            _tk_roundtrip(root, f"wd-update-{i}")
+            print(f"withdraw-update: {i + 1}/10 round-trips ok", flush=True)
+        print("withdraw-update: ok (10/10)", flush=True)
+    finally:
+        root.destroy()
+
+
+def phase_tk_mapped_noupdate() -> None:
+    """Mapped (never withdrawn) root, clipboard ops immediately, no
+    update() — the mirror image: isolates 'withdrawn' from 'never
+    processed events'."""
+    import tkinter
+
+    root = tkinter.Tk()
+    print("mapped-noupdate: root created (mapped, no update)", flush=True)
+    try:
+        for i in range(10):
+            _tk_roundtrip(root, f"mapped-{i}")
+            print(f"mapped-noupdate: {i + 1}/10 round-trips ok", flush=True)
+        print("mapped-noupdate: ok (10/10)", flush=True)
+    finally:
+        root.destroy()
+
+
+def phase_tk_widgets_noevents() -> None:
+    """readonly-events minus the synthetic events: widgets gridded,
+    update() pumped, clipboard seeded and read back — isolates whether
+    the event delivery contributes anything to that phase's success."""
+    import tkinter
+
+    for i in range(100):
+        root = tkinter.Tk()
+        root.withdraw()
+        try:
+            entry = tkinter.Entry(root)
+            entry.insert(0, "untouched")
+            entry.configure(state="readonly")
+            entry.grid(row=0, column=0)
+            root.update()
+            entry.tk.call("clipboard", "clear")
+            entry.tk.call("clipboard", "append", f"seeded-{i}")
+            got = str(entry.tk.call("clipboard", "get"))
+            if got != f"seeded-{i}":
+                raise AssertionError(f"iteration {i}: read back {got!r}")
+            entry.selection_range(0, "end")
+            root.update()
+        finally:
+            root.destroy()
+        if i % 25 == 24:
+            print(f"widgets-noevents: {i + 1}/100 iterations ok", flush=True)
+    print("widgets-noevents: ok (100/100)", flush=True)
+
+
 def phase_readonly_events() -> None:
     import tkinter
 
@@ -291,9 +432,14 @@ def phase_readonly_events() -> None:
 PHASE_FUNCS = {
     "info": phase_info,
     "win32": phase_win32,
+    "win32-retry": phase_win32_retry,
     "tk-basic": phase_tk_basic,
+    "tk-bisect": phase_tk_bisect,
+    "tk-withdraw-update": phase_tk_withdraw_update,
+    "tk-mapped-noupdate": phase_tk_mapped_noupdate,
     "tk-empty-get": phase_tk_empty_get,
     "tk-stress": phase_tk_stress,
+    "tk-widgets-noevents": phase_tk_widgets_noevents,
     "readonly-events": phase_readonly_events,
 }
 
@@ -322,6 +468,9 @@ def run_parent() -> int:
             )[-400:]
             if proc.returncode == 0:
                 verdict = "ok"
+                if phase in ("info", "tk-bisect"):
+                    for line in (proc.stdout or "").strip().splitlines():
+                        print(f"    | {line}", flush=True)
             elif proc.returncode == ACCESS_VIOLATION or proc.returncode < 0:
                 verdict = f"CRASH (exit {proc.returncode:#x})"
                 failures += 1
