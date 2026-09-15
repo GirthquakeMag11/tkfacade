@@ -246,17 +246,21 @@ with desktop notifications, a beep, and reply boxes.
 - **When**: any point needing maintainer intent — ambiguous scope, design
   decisions, principle conflicts, repro/report contradictions,
   misclassifications. The agent asks before guessing, not after failing.
-- **How**: `ask_user(question, context, issue)` blocks up to the reply
-  window (default 120 minutes). An answered question returns the answer;
-  the agent posts the Q&A verbatim to the issue (durable record) and
-  continues working.
-- **Timeout or relay unavailable**: the tool returns a `[TIMEOUT]` /
-  `[UNAVAILABLE]` marker and the agent falls back to GitHub escalation —
-  a comment on the issue mentioning `@GirthquakeMag11` (quoting the
-  question asked), the `escalation` label applied, `ready-to-fix` and
-  `fix-in-progress` removed, work stopped for that issue. The nightly
-  triage sweep detects answered GitHub escalations and re-routes the issue.
-  Nothing is silently dropped while the maintainer is away.
+- **How**: the channel is a polling loop, because opencode's MCP client
+  kills long-blocking tool calls (found in production, 2026-09-15):
+  `ask_user(question, context, issue)` files the question and returns an id
+  instantly; the agent then `check_answer(id)`s between one-minute sleeps
+  until `ANSWERED` (default window 120 minutes). An answered question is
+  posted verbatim to the issue (durable record) and the agent continues
+  working with the answer.
+- **Timeout or relay unavailable**: `check_answer` reports `EXPIRED` (or
+  `ask_user` reports `UNAVAILABLE`) and the agent falls back to GitHub
+  escalation — a comment on the issue mentioning `@GirthquakeMag11`
+  (quoting the question asked), the `escalation` label applied,
+  `ready-to-fix` and `fix-in-progress` removed, work stopped for that
+  issue. The nightly triage sweep detects answered GitHub escalations and
+  re-routes the issue. Nothing is silently dropped while the maintainer is
+  away.
 - **Infrastructure failures** of the agent's own run (broken runner,
   failed sync, network faults) are not intent questions: they go straight
   to GitHub escalation without burning a reply window.

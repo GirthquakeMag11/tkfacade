@@ -5,17 +5,21 @@ The direct channel between tkfacade's CI agents and the maintainer
 
 - `relay.py` — the queue server: agents post questions, the maintainer's
   browser answers them.
-- `mcp_server.py` — the MCP wrapper the fix agent runs: exposes the
-  `ask_user` tool, posts to the relay, blocks until answered.
+- `mcp_server.py` — the MCP wrapper the fix agent runs: exposes
+  `ask_user` (files the question, returns an id instantly) and
+  `check_answer` (non-blocking status read). opencode's MCP client kills
+  long-blocking tool calls, so the wait is the agent's: it polls
+  `check_answer` between one-minute sleeps.
 - `ui.html` — the browser client the relay serves at `/`: desktop
   notifications, a beep, reply boxes, history.
 
-Flow: fix agent hits a point where it needs maintainer intent → calls
-`ask_user` → relay stores the question → your browser tab notifies → you
-type the answer → the agent unblocks and continues. If no answer arrives
-within the timeout (default 120 minutes), the tool returns a `[TIMEOUT]`
-marker and the agent falls back to GitHub escalation (issue comment +
-`escalation` label), so nothing is silently dropped while you are away.
+Flow: fix agent hits a point where it needs maintainer intent → files it
+via `ask_user` → relay stores the question → your browser tab notifies →
+you type the answer → the agent's next `check_answer` poll (≤1 min later)
+picks it up and it continues. If no answer arrives within the window
+(default 120 minutes), `check_answer` reports `EXPIRED` and the agent
+falls back to GitHub escalation (issue comment + `escalation` label), so
+nothing is silently dropped while you are away.
 
 ## Deployment (always-on home machine, Tailscale)
 

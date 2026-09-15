@@ -103,18 +103,30 @@ Closes #<n>
 **Maintainer input:** <none | summary of each ask_user answer that shaped this PR>
 ```
 
-## Asking the maintainer (ask_user)
+## Asking the maintainer (escalation channel)
 
-- Every question gets a durable record: immediately after `ask_user`
-  returns an answer, post it to the issue —
-  `gh issue comment <n> --body "**Q (agent):** <question>\n\n**A (maintainer):** <answer>"`.
-- Phrase questions so they can be answered in a minute: the decision
-  needed, the options, your lean, the consequence of each.
-- `[TIMEOUT]` result: the maintainer is away. Fall back to GitHub
-  escalation (below) and stop for this issue.
-- `[UNAVAILABLE]` result: the relay is down or unconfigured. Same
-  fallback; mention in the escalation comment that the direct channel was
-  unreachable.
+Two MCP tools (server `escalation`), both returning instantly — the wait
+is yours to run, not the tool's:
+
+1. `ask_user(question, context, issue)` → `FILED id=<id> window=<m>` (or
+   `UNAVAILABLE: ...` → GitHub fallback below). Phrase the question so it
+   can be answered in a minute: the decision needed, the options, your
+   lean, the consequence of each.
+2. Poll: `sleep 60` in bash, then `check_answer(question_id=<id>)` →
+   `PENDING` (sleep and poll again — never faster than once per minute),
+   `ANSWERED: <text>`, or `EXPIRED`.
+3. On `ANSWERED`: post the exchange to the issue as the durable record —
+   `gh issue comment <n> --body "**Q (agent):** <question>
+
+   **A (maintainer):** <answer>"` — then continue working with the answer.
+4. On `EXPIRED` (maintainer away) or `UNAVAILABLE` (relay down or not
+   configured): GitHub fallback below; for `UNAVAILABLE`, mention in the
+   escalation comment that the direct channel was unreachable and why.
+
+While a question is pending you may keep preparing (reading code, drafting
+the change under `/tmp/opencode`) but never commit to a guessed answer:
+nothing that depends on the decision gets built until it arrives or the
+window expires.
 
 ## GitHub escalation (fallback — only when ask_user timed out or was unavailable)
 
@@ -136,8 +148,13 @@ Closes #<n>
 
 - Never merge any PR (the automerge job does, after its 24h window).
 - Never push to `main`, never touch tags, never edit `ROADMAP.md`,
-  `SPEC.md`, `CHANGELOG.md`, or `.github/` — your diff is `src/` and
-  `tests/` only (plus `examples/` if the issue is about an example).
+  `SPEC.md`, or `CHANGELOG.md`. Your diff is `src/` and `tests/` only
+  (plus `examples/` if the issue is about an example), with exactly one
+  `.github/` exception: when your fix resolves a Windows crash that is
+  deselected in `.github/ci/windows-deselect.txt`, your PR removes that
+  entry (and only that entry, and only its own comment block) so the PR's
+  Windows CI validates against the real crash. Everything else under
+  `.github/` is forbidden.
 - Scratch work lives under `/tmp/opencode`; nothing untracked may remain in
   the repo tree when you finish.
 - Labels: use only the CONTRIBUTING.md set; never create labels; never

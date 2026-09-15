@@ -1,32 +1,40 @@
 #!/usr/bin/env python3
-"""stdio MCP server exposing ``ask_user`` — the tkfacade fix agent's direct
-channel to the maintainer (docs/tracking/SPEC.md 5.4).
+"""stdio MCP server exposing the tkfacade escalation channel — the fix
+agent's direct line to the maintainer (docs/tracking/SPEC.md 5.4).
 
 Speaks newline-delimited JSON-RPC 2.0 over stdin/stdout (the MCP stdio
 transport) and implements the minimum surface opencode needs: initialize,
-tools/list, tools/call, ping. One tool:
+tools/list, tools/call, ping.
+
+Two tools, both returning in well under a second — opencode's MCP client
+kills long-blocking tool calls, so the wait lives in the *agent*, not the
+tool: the agent posts its question with ``ask_user``, then polls
+``check_answer`` between bash sleeps until it gets a verdict.
 
     ask_user(question, context?, issue?, timeout_minutes?)
+        Files the question with the relay. Returns a marker line:
+        ``FILED id=<id> window=<minutes>m`` — then instruct the agent to
+        poll — or ``UNAVAILABLE: <reason>`` when the relay is not
+        configured or not reachable (agent falls back to GitHub
+        escalation per its prompt).
 
-Posts the question to the escalation relay (relay.py, see its README for
-deployment) and blocks until the maintainer answers or the timeout lapses.
-Returns plain text:
-
-    <the answer>                 maintainer replied — proceed with it
-    [TIMEOUT] ...                nobody replied within the window — the
-                                 calling agent falls back to GitHub
-                                 escalation per its prompt
-    [UNAVAILABLE] ...            relay not configured/not reachable — same
-                                 fallback
+    check_answer(question_id)
+        Non-blocking status read. Returns exactly one of:
+        ``PENDING elapsed=<m> window=<m>``   — keep sleeping and polling
+        ``ANSWERED: <the maintainer's answer>`` — proceed with it
+        ``EXPIRED window=<m>``                — nobody answered; GitHub
+                                               escalation fallback
+        ``UNKNOWN_ID <id>`` / ``UNAVAILABLE: <reason>``
 
 Configuration via environment (the fix workflow injects these from repo
 secrets):
 
-    ESCALATION_RELAY_URL   public relay base URL (e.g. the Tailscale
-                           Funnel https URL); empty disables the channel
+    ESCALATION_RELAY_URL   public relay base URL (Tailscale Funnel https
+                           URL); empty disables the channel
     ESCALATION_TOKEN       the relay's ask-side bearer token
 
-Stdlib only; logs go to stderr so stdout stays clean JSON-RPC.
+The relay side is ops/escalation/relay.py (deployed separately; see its
+README). Stdlib only; logs go to stderr so stdout stays clean JSON-RPC.
 """
 
 from __future__ import annotations
@@ -39,46 +47,76 @@ import urllib.error
 import urllib.request
 
 PROTOCOL_VERSION = "2024-11-05"
-SERVER_INFO = {"name": "tkfacade-escalation", "version": "0.1.0"}
+SERVER_INFO = {"name": "tkfacade-escalation", "version": "0.2.0"}
 
 RELAY_URL = os.environ.get("ESCALATION_RELAY_URL", "").rstrip("/")
 RELAY_TOKEN = os.environ.get("ESCALATION_TOKEN", "")
-HTTP_TIMEOUT = 15.0
-POLL_SECONDS = 100.0  # under the relay's 110s long-poll cap
+HTTP_TIMEOUT = 20.0
 
-TOOL = {
-    "name": "ask_user",
-    "description": (
-        "Ask the tkfacade maintainer a question directly and block until answered "
-        "(default window: 120 minutes). Use this the moment you need the maintainer's "
-        "intent — ambiguous scope, a design decision, a principle conflict, a repro "
-        "that contradicts the report — BEFORE guessing. Returns the answer text, or a "
-        "[TIMEOUT]/[UNAVAILABLE] marker meaning: fall back to GitHub escalation "
-        "(comment mentioning @GirthquakeMag11, apply the escalation label, stop)."
-    ),
-    "inputSchema": {
-        "type": "object",
-        "properties": {
-            "question": {
-                "type": "string",
-                "description": "The precise question. State the decision needed and the options you see.",
+POLL_INSTRUCTIONS = (
+    "Poll loop: run `sleep 60` in bash, then call check_answer with this id. "
+    "Repeat until ANSWERED (proceed; also post the Q&A verbatim to the GitHub "
+    "issue as the durable record) or EXPIRED (GitHub escalation fallback per "
+    "your prompt: comment mentioning @GirthquakeMag11 quoting this question, "
+    "apply the escalation label, remove ready-to-fix and fix-in-progress, stop "
+    "for this issue). Do not poll faster than once per 60 seconds."
+)
+
+TOOLS = [
+    {
+        "name": "ask_user",
+        "description": (
+            "File a question for the tkfacade maintainer (desktop/browser push "
+            "notification reaches them; default answer window 120 minutes). Use "
+            "the moment you need maintainer intent — ambiguous scope, a design "
+            "decision, a principle conflict, a repro contradicting the report — "
+            "BEFORE guessing. Returns immediately: 'FILED id=... window=...m' "
+            "(then poll with check_answer between `sleep 60` calls), or "
+            "'UNAVAILABLE: ...' (fall back to GitHub escalation)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "description": "The precise question: the decision needed, the options, your lean, consequences.",
+                },
+                "context": {
+                    "type": "string",
+                    "description": "What you were doing, what you tried, relevant paths/commands/output.",
+                },
+                "issue": {
+                    "type": "string",
+                    "description": "GitHub issue number or URL this concerns, if any.",
+                },
+                "timeout_minutes": {
+                    "type": "number",
+                    "description": "Answer window in minutes (default 120).",
+                },
             },
-            "context": {
-                "type": "string",
-                "description": "What you were doing, what you tried, relevant paths/commands/output.",
-            },
-            "issue": {
-                "type": "string",
-                "description": "GitHub issue number or URL this concerns, if any.",
-            },
-            "timeout_minutes": {
-                "type": "number",
-                "description": "How long to wait (default 120).",
-            },
+            "required": ["question"],
         },
-        "required": ["question"],
     },
-}
+    {
+        "name": "check_answer",
+        "description": (
+            "Non-blocking status of a question filed via ask_user. Returns "
+            "PENDING (keep sleeping ~60s and re-poll), ANSWERED: <text> "
+            "(proceed with it), EXPIRED (maintainer away — GitHub escalation "
+            "fallback), or UNAVAILABLE/UNKNOWN_ID."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "question_id": {
+                    "type": "string",
+                    "description": "The id returned by ask_user.",
+                },
+            },
+            "required": ["question_id"],
+        },
+    },
+]
 
 
 def _log(msg: str) -> None:
@@ -100,23 +138,31 @@ def _request(method: str, path: str, payload: dict | None = None) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
+def _unavailable(reason: str) -> str:
+    return (
+        f"UNAVAILABLE: {reason} — fall back to GitHub escalation: comment on "
+        "the issue mentioning @GirthquakeMag11 with the question you need "
+        "answered, apply the escalation label, remove ready-to-fix, and stop "
+        "for this issue."
+    )
+
+
 def ask_user(args: dict) -> str:
     if not RELAY_URL or not RELAY_TOKEN:
-        return (
-            "[UNAVAILABLE] escalation relay not configured for this run — fall back "
-            "to GitHub escalation: comment on the issue mentioning @GirthquakeMag11, "
-            "apply the escalation label, remove ready-to-fix, and stop."
-        )
+        return _unavailable("escalation relay not configured for this run")
     question = str(args.get("question", "")).strip()
     if not question:
-        return "[UNAVAILABLE] ask_user requires a non-empty question."
+        return _unavailable("ask_user requires a non-empty question")
     try:
         timeout_minutes = float(args.get("timeout_minutes", 120))
     except (TypeError, ValueError):
         timeout_minutes = 120.0
     run_url = os.environ.get("GITHUB_SERVER_URL", "")
     if os.environ.get("GITHUB_RUN_ID"):
-        run_url = f"{run_url}/{os.environ.get('GITHUB_REPOSITORY', '')}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+        run_url = (
+            f"{run_url}/{os.environ.get('GITHUB_REPOSITORY', '')}"
+            f"/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+        )
     try:
         created = _request(
             "POST",
@@ -131,31 +177,52 @@ def ask_user(args: dict) -> str:
         )
     except (urllib.error.URLError, OSError, ValueError) as exc:
         _log(f"relay unreachable: {exc!r}")
-        return (
-            f"[UNAVAILABLE] escalation relay unreachable ({exc}) — fall back to "
-            "GitHub escalation: comment on the issue mentioning @GirthquakeMag11, "
-            "apply the escalation label, remove ready-to-fix, and stop."
-        )
+        return _unavailable(f"relay unreachable ({exc})")
     qid = created.get("id", "")
-    _log(f"question {qid} filed; waiting up to {timeout_minutes:.0f} min")
-    deadline = time.monotonic() + timeout_minutes * 60.0
-    while time.monotonic() < deadline:
-        try:
-            state = _request("GET", f"/api/ask/{qid}/wait?seconds={POLL_SECONDS:.0f}")
-        except (urllib.error.URLError, OSError, ValueError) as exc:
-            _log(f"poll error (retrying): {exc!r}")
-            time.sleep(5.0)
-            continue
-        status = state.get("status")
-        if status == "answered":
-            return str(state.get("answer", ""))
-        if status == "expired":
-            break
-    return (
-        f"[TIMEOUT] no answer within {timeout_minutes:.0f} minutes — fall back to "
-        "GitHub escalation: comment on the issue mentioning @GirthquakeMag11, "
-        "apply the escalation label, remove ready-to-fix, and stop."
+    deadline = created.get("deadline")
+    window = (
+        f"{(float(deadline) - time.time()) / 60:.0f}m"
+        if deadline
+        else f"{timeout_minutes:.0f}m"
     )
+    _log(f"question {qid} filed, window {window}")
+    return f"FILED id={qid} window={window}. {POLL_INSTRUCTIONS}"
+
+
+def check_answer(args: dict) -> str:
+    if not RELAY_URL or not RELAY_TOKEN:
+        return _unavailable("escalation relay not configured for this run")
+    qid = str(args.get("question_id", "")).strip()
+    if not qid:
+        return "UNKNOWN_ID (empty question_id)"
+    try:
+        state = _request("GET", f"/api/ask/{qid}")
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return f"UNKNOWN_ID {qid}"
+        _log(f"poll error: {exc!r}")
+        return _unavailable(f"relay HTTP error ({exc.code})")
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        _log(f"poll error: {exc!r}")
+        return _unavailable(f"relay unreachable ({exc})")
+    status = state.get("status")
+    if status == "answered":
+        return f"ANSWERED: {state.get('answer', '')}"
+    if status == "expired":
+        window = (float(state.get("deadline", 0)) - float(state.get("created", 0))) / 60
+        return (
+            f"EXPIRED window={window:.0f}m — no answer arrived. "
+            "GitHub escalation fallback per your prompt: comment on the issue "
+            "mentioning @GirthquakeMag11 quoting the question, apply the "
+            "escalation label, remove ready-to-fix and fix-in-progress, stop "
+            "for this issue."
+        )
+    elapsed = (time.time() - float(state.get("created", time.time()))) / 60
+    window = (float(state.get("deadline", 0)) - float(state.get("created", 0))) / 60
+    return f"PENDING elapsed={elapsed:.0f}m window={window:.0f}m — `sleep 60`, then poll again."
+
+
+HANDLERS = {"ask_user": ask_user, "check_answer": check_answer}
 
 
 def _reply(mid: object, result: dict) -> dict:
@@ -185,11 +252,12 @@ def main() -> None:
         elif method == "ping":
             out = _reply(mid, {})
         elif method == "tools/list":
-            out = _reply(mid, {"tools": [TOOL]})
+            out = _reply(mid, {"tools": TOOLS})
         elif method == "tools/call":
             params = msg.get("params") or {}
-            if params.get("name") == "ask_user":
-                text = ask_user(params.get("arguments") or {})
+            handler = HANDLERS.get(params.get("name", ""))
+            if handler is not None:
+                text = handler(params.get("arguments") or {})
                 out = _reply(mid, {"content": [{"type": "text", "text": text}], "isError": False})
             else:
                 out = {
