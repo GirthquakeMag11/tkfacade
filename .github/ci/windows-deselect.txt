@@ -20,6 +20,23 @@ tests/test_text.py::test_a_read_only_input_still_selects_and_copies
 # traversal), editable WITH events passes.
 tests/test_text.py::test_a_read_only_input_lets_the_user_select_and_copy
 
+# Fourth crash (run 34921166789) rewrites the diagnosis: died AT the
+# `tk.call("clipboard", "clear")` line (test_text.py:280), before any
+# synthetic events — so clipboard operations alone can fault, yet
+# test_combobox.py's copy_selection passed earlier in the same run. The
+# trigger is narrower than either first hypothesis; see #5. Confirmed
+# crash:
+tests/test_text.py::test_copy_selection_leaves_the_clipboard_alone_when_empty
+# Predicted family (every remaining test_text.py test that reads/writes the
+# clipboard or calls copy_selection) — deselected ahead of evidence to
+# stop the one-crash-per-CI-cycle crawl; trim back whatever proves clean
+# once #5 is diagnosed:
+tests/test_text.py::test_a_user_select_all_in_a_text_box_takes_tks_trailing_newline
+tests/test_text.py::test_an_entry_mask_hides_the_display_but_not_the_content
+tests/test_text.py::test_a_user_copy_from_a_masked_entry_takes_the_mask
+tests/test_text.py::test_selection_and_cursor_survive_an_astral_character
+tests/test_text.py::test_select_all_replaces_a_user_select_all
+
 # mpv render-context teardown race: Root.destroy() while libmpv's event
 # thread still holds the window -> code 0xe24c4a02 (D3D11 device removed),
 # process death. Crash sits at the media_display -> media_player boundary
