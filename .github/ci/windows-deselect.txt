@@ -7,6 +7,12 @@
 
 tests/test_text.py::test_a_read_only_input_refuses_every_keyboard_edit
 
+# Same family as the entry above (#5): synthetic events against a
+# read-only text input, access violation. Crashed on the [box] param
+# (run 34918702144); the other params die behind it, so the whole test
+# (all params) is deselected until #5's root cause is fixed.
+tests/test_text.py::test_a_read_only_input_still_selects_and_copies
+
 # mpv render-context teardown race: Root.destroy() while libmpv's event
 # thread still holds the window -> code 0xe24c4a02 (D3D11 device removed),
 # process death. Crash sits at the media_display -> media_player boundary
