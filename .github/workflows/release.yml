@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         # No LFS: built distributions exclude the vendored libmpv
         # (pyproject [tool.hatch.build]); an installed tkfacade finds
         # libmpv on the system path.
