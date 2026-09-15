@@ -21,44 +21,78 @@ marker and the agent falls back to GitHub escalation (issue comment +
 
 The relay binds `127.0.0.1` by design. GitHub Actions runners are not on
 the tailnet, so public ingress comes from **Tailscale Funnel**, which
-terminates TLS and forwards to localhost. (Funnel must be enabled in the
-tailnet policy for the machine; `tailscale funnel status` shows whether it
-is.) Any other TLS-terminating reverse proxy works too — the relay itself
-speaks plain HTTP to localhost only.
+terminates TLS and forwards to localhost. Funnel must be enabled once for
+the tailnet (`tailscale funnel --bg <port>` prints the admin URL when it is
+not; enabling requires a tailnet admin). Any other TLS-terminating reverse
+proxy works too — the relay itself speaks plain HTTP to localhost only.
 
-1. **Copy the directory** to the host, e.g. `/opt/tkfacade-escalation/`
-   (`relay.py`, `mcp_server.py` is CI-side only, `ui.html`).
+The reference deployment (the live one) is **user-level, no sudo**: files
+under `~/tkfacade-escalation/`, a systemd *user* unit, and `linger` enabled
+for the user so the service survives logout and reboot
+(`loginctl enable-linger <user>`). A system-level install under `/opt` with
+the `escalation-relay.service` template works the same way; adjust
+`User=`/paths and add the hardening directives if you prefer it.
 
-2. **Generate the two tokens** (on any machine with Python):
+1. **Copy the files** to the host: `relay.py` and `ui.html` into
+   `~/tkfacade-escalation/` (`mcp_server.py` is CI-side only — it runs from
+   the repo checkout inside the workflow).
+
+2. **Generate the two tokens** (on the host, so the UI token never
+   travels):
 
    ```sh
-   python3 -c "import secrets; print('ASK :', secrets.token_urlsafe(32)); print('UI  :', secrets.token_urlsafe(32))"
+   python3 -c "import secrets; print(secrets.token_urlsafe(32))"  # ASK token
+   python3 -c "import secrets; print(secrets.token_urlsafe(32))"  # UI token
    ```
 
-3. **Write the environment file** `/etc/tkfacade-escalation.env`:
+3. **Write the environment file** `~/tkfacade-escalation/env`
+   (`chmod 600`):
 
    ```ini
    ESCALATION_ASK_TOKEN=<the ASK token>
    ESCALATION_UI_TOKEN=<the UI token>
-   ESCALATION_STATE=/var/lib/tkfacade-escalation/state.json
+   ESCALATION_STATE=/home/<user>/tkfacade-escalation/state.json
    ```
 
-   `chmod 600`; create the state directory owned by the service user.
+   Keep the UI token retrievable only by you (e.g. a `ui-token.txt` beside
+   it, `chmod 600`).
 
-4. **Install the systemd unit** (`escalation-relay.service` beside this
-   README is a template — adjust paths/user), then:
+4. **Install the user unit** `~/.config/systemd/user/tkfacade-escalation.service`:
+
+   ```ini
+   [Unit]
+   Description=tkfacade escalation relay
+   After=network-online.target
+
+   [Service]
+   ExecStart=/usr/bin/python3 %h/tkfacade-escalation/relay.py
+   EnvironmentFile=%h/tkfacade-escalation/env
+   Restart=on-failure
+   RestartSec=5
+
+   [Install]
+   WantedBy=default.target
+   ```
+
+   then:
 
    ```sh
-   sudo systemctl daemon-reload
-   sudo systemctl enable --now tkfacade-escalation
+   loginctl enable-linger <user>   # once, so the unit runs without a login
+   systemctl --user daemon-reload
+   systemctl --user enable --now tkfacade-escalation
+   curl -s http://127.0.0.1:8787/api/ping
    ```
 
-5. **Expose via Funnel** (persists across reboots with `--bg`):
+5. **Expose via Funnel** (persists in tailscaled across reboots):
 
    ```sh
-   tailscale funnel 8787 on
-   tailscale funnel status   # prints the public https://<machine>.<tailnet>.ts.net URL
+   tailscale funnel --bg 8787
+   tailscale funnel status   # shows the public https://<machine>.<tailnet>.ts.net URL
    ```
+
+   Note: the newer funnel CLI hangs an SSH session if output is not
+   detached — run it as `nohup tailscale funnel --bg 8787 >/tmp/funnel.log 2>&1 </dev/null &`
+   when deploying over SSH. The public side lands on port 443.
 
 6. **Open the UI** at `https://<machine>.<tailnet>.ts.net/`, paste the
    **UI token**, click Save, then Enable notifications. Leave the tab open
