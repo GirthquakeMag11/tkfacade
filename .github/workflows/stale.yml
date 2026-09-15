@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Mark stale and close idle issues
-        uses: actions/stale@v9
+        uses: actions/stale@v11
         with:
           days-before-issue-stale: 30
           days-before-issue-close: 15
