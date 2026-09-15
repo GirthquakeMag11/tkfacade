@@ -11,6 +11,7 @@ import threading
 import pytest
 
 import tkfacade
+from tkfacade.widget import Surface
 from tkfacade.window import Root, get_root
 from tkfacade.window import _root as _root_module
 
@@ -113,6 +114,59 @@ def test_a_window_manager_close_runs_the_cascade(root: Root) -> None:
     survivor._tk.tk.call(str(survivor._tk.protocol("WM_DELETE_WINDOW")))
 
     assert root.destroyed
+
+
+class _RecordingSurface(Surface):
+    """A :class:`Surface` that records the liveness of its frames at teardown.
+
+    The ordering probe for the two destroy hooks below: ``(outer,
+    inner)`` answers whether each frame still existed at the moment
+    :meth:`_surface_teardown` ran, and one entry per teardown pins
+    that it ran exactly once.
+    """
+
+    __slots__ = ("observations",)
+
+    def __init__(self, parent: tkfacade.Window, observations: list[tuple[bool, bool]]) -> None:
+        self.observations: list[tuple[bool, bool]] = observations
+        super().__init__(parent)
+
+    def _surface_teardown(self) -> None:
+        super()._surface_teardown()
+        self.observations.append(
+            (bool(self._tk.winfo_exists()), bool(self._surface.winfo_exists()))
+        )
+
+
+def test_root_destruction_tears_surfaces_down_while_the_window_lives(root: Root) -> None:
+    """``Root.destroy`` runs surface teardowns before Tk frees their windows.
+
+    The Windows hard crash behind issue #6: teardown lived only in the reactive ``<Destroy>`` binding, which fires *during* Tk's destroy — by then the inner drawing frame, the native window an mpv render context is bound to, is already freed, and a backend writing into it kills the process with 0xe24c4a02 rather than raising. Benign on X11, so the ordering is asserted directly instead of by crash: at teardown both frames must still exist. The single-entry list is the other half of the contract — the reactive binding stays armed as the backstop for raw frame destroys and must not run a second teardown after the proactive one.
+    """
+    observations: list[tuple[bool, bool]] = []
+    window = tkfacade.Window(title="host", root=root)
+    _RecordingSurface(window, observations).grid(row=0, column=0)
+
+    root.destroy()
+
+    assert observations == [(True, True)]
+
+
+def test_window_destruction_tears_its_surfaces_down_while_it_lives(root: Root) -> None:
+    """``BaseWindow.destroy`` runs the surfaces under it down before the window dies.
+
+    The per-window half of the ordering, and the half a Root-only fix would have left crashing: a titlebar close or a standalone ``win.destroy()`` frees the toplevel's native windows with no root teardown in sight — and on the last window the cascade only reaches the root afterwards — so the reactive binding used to fire there with the drawing frame already dead. A survivor window keeps the root alive through the destroy, which pins the teardown as this hook's work rather than the root cascade's; the assertion shape is the root test's.
+    """
+    observations: list[tuple[bool, bool]] = []
+    survivor = tkfacade.Window(title="survivor", root=root)
+    doomed = tkfacade.Window(title="doomed", root=root)
+    _RecordingSurface(doomed, observations).grid(row=0, column=0)
+
+    doomed.destroy()
+
+    assert observations == [(True, True)]
+    assert not root.destroyed
+    assert root.windows == (survivor,)
 
 
 def test_a_dead_interpreter_is_released_only_from_the_main_thread(root: Root) -> None:
