@@ -35,7 +35,7 @@ jobs:
       # src/tkfacade/media/libmpv DLLs serve the editable install.
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           version: "0.10.12"
           enable-cache: true
