@@ -13,6 +13,13 @@ tests/test_text.py::test_a_read_only_input_refuses_every_keyboard_edit
 # (all params) is deselected until #5's root cause is fixed.
 tests/test_text.py::test_a_read_only_input_still_selects_and_copies
 
+# Third member of the #5 family (run 34920742365): read-only input +
+# synthetic user select/copy events, access violation in the test body
+# (line 208). The pattern is now precise: read-only widget + synthetic
+# event delivery crashes; read-only WITHOUT events passes (cursor,
+# traversal), editable WITH events passes.
+tests/test_text.py::test_a_read_only_input_lets_the_user_select_and_copy
+
 # mpv render-context teardown race: Root.destroy() while libmpv's event
 # thread still holds the window -> code 0xe24c4a02 (D3D11 device removed),
 # process death. Crash sits at the media_display -> media_player boundary
