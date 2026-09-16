@@ -174,25 +174,41 @@ class Surface(Widget):
             node = master
         return False
 
-    def _on_destroy(self, event: tk.Event[tk.Misc]) -> None:
-        """Tear down once, on whichever of the two frames dies first.
+    def _teardown(self) -> None:
+        """Leave the registry and release the backend, exactly once.
 
-        The surface leaves the registry *before* the teardown hook, so
-        nothing can schedule a review of a dying widget.
+        Idempotent: whichever of the proactive hooks
+        (:meth:`_teardown_all`, :meth:`_teardown_window`) or the
+        reactive ``<Destroy>`` binding arrives first performs the
+        teardown, and every later arrival is a no-op. The surface
+        leaves the registry *before* the teardown hook, so nothing
+        can schedule a review of a dying widget.
+        """
+        if self._torn_down:
+            return
+        self._torn_down = True
+        Surface._forget(self._key)
+        self._obstructed_watch.cancel()
+        self._surface_teardown()
+
+    def _on_destroy(self, event: tk.Event[tk.Misc]) -> None:
+        """Tear down on whichever of the two frames dies first.
+
+        The reactive backstop, and too late to be the only route: by
+        the time Tk delivers a ``<Destroy>``, the window a backend was
+        drawing into is already being freed — benign on X11, fatal on
+        Windows (see :meth:`_teardown_all`). The proactive hooks fire
+        first on every destroy that goes through a wrapper; this
+        remains for a frame destroyed on its own.
 
         Args:
             event (tk.Event[tk.Misc]): The ``<Destroy>`` that arrived.
                 Ignored unless it names one of this surface's own
                 frames, since the binding also sees children.
         """
-        if self._torn_down:
-            return
         if event.widget is not self._surface and event.widget is not self._tk:
             return
-        self._torn_down = True
-        Surface._forget(self._key)
-        self._obstructed_watch.cancel()
-        self._surface_teardown()
+        self._teardown()
 
     def _surface_blank(self) -> None:
         """Take the surface off the screen; subclasses call ``super()`` first."""
@@ -318,6 +334,50 @@ class Surface(Widget):
             del cls._review_job[interpreter]
             if remaining:
                 cls._schedule_on(interpreter)
+
+    @classmethod
+    def _teardown_all(cls, interpreter: object, /) -> None:
+        """Tear down every surface on ``interpreter`` before its windows die.
+
+        What :meth:`Root.destroy` runs ahead of ``tk.Tk.destroy``: a
+        backend drawing into a native window — mpv — must be terminated
+        *while the window still exists*, and the reactive ``<Destroy>``
+        binding can only fire once Tk has begun freeing it. Reversed,
+        the backend writes into a freed window: benign on X11, process
+        death on Windows (D3D11 device removed, 0xe24c4a02). No Tcl
+        call is made here beyond what the teardown hooks suppress, so
+        an interpreter already past saving is safe to sweep.
+
+        Args:
+            interpreter (object): The Tcl interpreter being destroyed.
+        """
+        for (interp, _path), surface in tuple(cls._surfaces.items()):
+            if interp is interpreter:
+                surface._teardown()
+
+    @classmethod
+    def _teardown_window(cls, interpreter: object, path: str, /) -> None:
+        """Tear down every surface at or under the window ``path``, before it dies.
+
+        The per-toplevel half of :meth:`_teardown_all`, what
+        :meth:`BaseWindow.destroy` runs ahead of the toplevel's own: a
+        titlebar close or a standalone window destroy frees that
+        window's natives with no root teardown in sight — and on the
+        last window, long before the cascade reaches one — so the
+        surfaces under it need the same terminate-first ordering.
+        Matched by Tk path prefix over the registry: a descendant's
+        path continues its ancestor's with the ``.`` separator, so no
+        Tcl call is needed and an already-dead window (its surfaces
+        already torn down and forgotten) simply matches nothing.
+
+        Args:
+            interpreter (object): The Tcl interpreter the window is on.
+            path (str): The Tk path of the window being destroyed.
+        """
+        prefix = path + "."
+        for (interp, surface_path), surface in tuple(cls._surfaces.items()):
+            if interp is interpreter and (surface_path == path or surface_path.startswith(prefix)):
+                surface._teardown()
 
     @classmethod
     def review_all(cls) -> None:

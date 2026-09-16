@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Final
 
 from .._core import Core, attach_core, detach_core
 from ..input import InputObserver
-from ..widget import BaseWidget
+from ..widget import BaseWidget, Surface
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -226,14 +226,19 @@ class Root(BaseWidget):
     def destroy(self) -> None:
         """Destroy the interpreter and every window under it.
 
-        The wrapper registry is emptied too: a destroyed root holds
-        nothing, so the :class:`Window` wrappers it was keeping alive
-        become collectable. The dead interpreter itself is retired
-        into the main-thread pin (see :data:`_retired_apps`) rather
-        than left to die on whatever thread collects its cycles.
+        Live surfaces go first, while their native windows still
+        exist: a backend drawing into one — mpv — must be terminated
+        before Tk frees it, or the process dies instead of raising
+        (see :meth:`Surface._teardown_all`). The wrapper registry is
+        emptied too: a destroyed root holds nothing, so the
+        :class:`Window` wrappers it was keeping alive become
+        collectable. The dead interpreter itself is retired into the
+        main-thread pin (see :data:`_retired_apps`) rather than left
+        to die on whatever thread collects its cycles.
         """
         if not self._destroyed:
             self._destroyed = True
+            Surface._teardown_all(self._tk.tk)
             detach_core(self._tk.tk)
             if self._inputs is not None:
                 self._inputs._teardown()
@@ -341,15 +346,22 @@ class BaseWindow(tk.Toplevel):
     def destroy(self) -> None:
         """Destroy this toplevel, then tear down its own root if bare.
 
-        The root consulted is the :class:`Root` this window was built
-        on — the shared one only when no owner was given. When that
-        root's last live toplevel is gone, its ``tk.Tk`` — and with it
-        the mainloop — is destroyed too, and no other root is touched.
-        A window-manager close lands here as well, via the
-        ``WM_DELETE_WINDOW`` handler registered at construction, and
-        any :class:`Window` wrapper holding this toplevel leaves the
-        root's registry so a dead window is never pinned by it.
+        Surfaces under this window go first, while it still exists —
+        the same terminate-before-free ordering :meth:`Root.destroy`
+        keeps interpreter-wide, and needed here because a titlebar
+        close or a standalone window destroy frees this window's
+        natives without any root teardown running (see
+        :meth:`Surface._teardown_window`). The root consulted is the
+        :class:`Root` this window was built on — the shared one only
+        when no owner was given. When that root's last live toplevel
+        is gone, its ``tk.Tk`` — and with it the mainloop — is
+        destroyed too, and no other root is touched. A window-manager
+        close lands here as well, via the ``WM_DELETE_WINDOW`` handler
+        registered at construction, and any :class:`Window` wrapper
+        holding this toplevel leaves the root's registry so a dead
+        window is never pinned by it.
         """
+        Surface._teardown_window(self.tk, str(self))
         super().destroy()
         with GLOBAL_LOCK:
             root = self._owner if self._owner is not None else _root
