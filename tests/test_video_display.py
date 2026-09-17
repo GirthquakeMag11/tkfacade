@@ -6,7 +6,6 @@ obstruction dance needs real mapping, so everything runs on the
 ``window`` fixture under the ``gui`` marker.
 """
 
-import sys
 import time
 import wave
 from collections.abc import Callable
@@ -19,17 +18,7 @@ from conftest import Pump
 from tkfacade.media import VideoDisplay
 from tkfacade.widget import Surface
 
-pytestmark = [
-    pytest.mark.gui,
-    pytest.mark.skipif(
-        sys.platform == "win32",
-        reason=(
-            "mpv.terminate() crashes the interpreter on Windows "
-            "(access violation in MPVEventHandlerThread during "
-            "fixture teardown — see the media teardown notes)"
-        ),
-    ),
-]
+pytestmark = pytest.mark.gui
 
 
 def _silence_wav(directory: Path) -> str:
